@@ -1,867 +1,514 @@
+import streamlit as st
+import streamlit.components.v1 as components
+
+st.set_page_config(
+    page_title="리얼 3D 탁구 시뮬레이터",
+    page_icon="🏓",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+# 여백 제거용 CSS
+st.markdown("""
+<style>
+    .block-container {
+        padding-top: 1rem;
+        padding-bottom: 0rem;
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+    header {visibility: hidden;}
+</style>
+""", unsafe_allow_html=True)
+
+# 3D 탁구 게임 HTML 코드 (반드시 삼중 따옴표 안에 위치해야 함)
+html_code = """
 <!DOCTYPE html>
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>리얼 3D 탁구 시뮬레이터 (3D Table Tennis)</title>
-    <!-- Tailwind CSS for UI controls -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Three.js 3D Library -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <!-- FontAwesome icons -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;800;900&display=swap');
-        
+        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
         body {
-            font-family: 'Pretendard', sans-serif;
-            background-color: #090d16;
+            background-color: #0f172a;
             color: #f8fafc;
-            user-select: none;
-            -webkit-user-select: none;
-            touch-action: none;
+            font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
             overflow: hidden;
-        }
-
-        #canvas-container {
-            width: 100vw;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
             height: 100vh;
+        }
+        #game-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        /* 상단 스코어보드 */
+        #scoreboard {
             position: absolute;
-            top: 0;
-            left: 0;
-            z-index: 1;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            align-items: center;
+            gap: 24px;
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(8px);
+            padding: 12px 32px;
+            border-radius: 50px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            z-index: 10;
         }
-
-        .glass-panel {
-            background: rgba(15, 23, 42, 0.75);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid rgba(255, 255, 255, 0.12);
+        .score-box {
+            text-align: center;
         }
-
-        @keyframes pulse-glow {
-            0%, 100% { transform: scale(1); opacity: 1; }
-            50% { transform: scale(1.05); opacity: 0.85; }
+        .player-label {
+            font-size: 12px;
+            font-weight: bold;
+            letter-spacing: 1px;
+            color: #94a3b8;
         }
-        .animate-pulse-glow {
-            animation: pulse-glow 0.8s infinite ease-in-out;
+        .score-num {
+            font-size: 32px;
+            font-weight: 900;
+            line-height: 1.1;
+        }
+        #player-score { color: #38bdf8; }
+        #ai-score { color: #f43f5e; }
+        .vs-divider {
+            font-size: 14px;
+            font-weight: bold;
+            color: #64748b;
+        }
+        /* 컨트롤 바 */
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 12px;
+            background: rgba(15, 23, 42, 0.8);
+            padding: 10px 20px;
+            border-radius: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            z-index: 10;
+        }
+        button, select {
+            background: #1e293b;
+            color: #f8fafc;
+            border: 1px solid #334155;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        button:hover, select:hover {
+            background: #334155;
+            border-color: #38bdf8;
+        }
+        /* 안내 및 상태 메시지 */
+        #message-overlay {
+            position: absolute;
+            top: 42%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            pointer-events: none;
+            z-index: 20;
+        }
+        #status-text {
+            font-size: 36px;
+            font-weight: 900;
+            color: #fbbf24;
+            text-shadow: 0 4px 15px rgba(0,0,0,0.8);
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        #guide-text {
+            position: absolute;
+            bottom: 75px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 13px;
+            color: #cbd5e1;
+            background: rgba(0,0,0,0.5);
+            padding: 6px 14px;
+            border-radius: 15px;
+            pointer-events: none;
         }
     </style>
+    <!-- Three.js CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
-<body class="w-screen h-screen flex flex-col justify-between p-3 md:p-6 select-none">
-
-    <!-- 3D Canvas Container -->
-    <div id="canvas-container"></div>
-
-    <!-- Top UI Header (Score & Rally Stats) -->
-    <header class="relative z-10 w-full max-w-5xl mx-auto glass-panel rounded-2xl p-3 md:p-4 flex items-center justify-between shadow-2xl">
-        <!-- Player Info (Blue) -->
-        <div class="flex items-center space-x-3">
-            <div class="w-10 h-10 md:w-12 md:h-12 rounded-full bg-blue-600 flex items-center justify-center font-black text-xl border-2 border-blue-300 shadow-lg">
-                <i class="fa-solid fa-user"></i>
+<body>
+    <div id="game-container">
+        <div id="scoreboard">
+            <div class="score-box">
+                <div class="player-label">PLAYER (나)</div>
+                <div class="score-num" id="player-score">0</div>
             </div>
-            <div>
-                <div class="flex items-center space-x-2">
-                    <span class="text-xs text-blue-300 font-bold uppercase tracking-wider">YOU (플레이어)</span>
-                    <span id="player-serve-badge" class="hidden px-1.5 py-0.5 rounded text-[10px] bg-amber-500 text-slate-950 font-black">서브</span>
-                </div>
-                <div class="text-2xl md:text-4xl font-black text-blue-400" id="player-score">0</div>
+            <div class="vs-divider">VS</div>
+            <div class="score-box">
+                <div class="player-label">AI BOT</div>
+                <div class="score-num" id="ai-score">0</div>
             </div>
         </div>
 
-        <!-- Rally & Game Status Center -->
-        <div class="text-center">
-            <div class="text-xs text-slate-400 font-semibold mb-0.5">최고 랠리: <span id="max-rally" class="text-amber-400 font-bold">0</span>회</div>
-            <div class="text-xl md:text-3xl font-black text-white tracking-widest">
-                랠리 <span id="current-rally" class="text-emerald-400">0</span>
-            </div>
-            <div id="game-status-badge" class="mt-1 inline-block px-3 py-0.5 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                11점 선승 (2점 차 승부)
-            </div>
+        <div id="message-overlay">
+            <div id="status-text">SMASH!</div>
         </div>
 
-        <!-- AI Info (Red) -->
-        <div class="flex items-center space-x-3 text-right">
-            <div>
-                <div class="flex items-center justify-end space-x-2">
-                    <span id="ai-serve-badge" class="hidden px-1.5 py-0.5 rounded text-[10px] bg-amber-500 text-slate-950 font-black">서브</span>
-                    <span class="text-xs text-red-300 font-bold uppercase tracking-wider" id="ai-label">AI (보통)</span>
-                </div>
-                <div class="text-2xl md:text-4xl font-black text-red-400" id="ai-score">0</div>
-            </div>
-            <div class="w-10 h-10 md:w-12 md:h-12 rounded-full bg-red-600 flex items-center justify-center font-black text-xl border-2 border-red-300 shadow-lg">
-                <i class="fa-solid fa-robot"></i>
-            </div>
-        </div>
-    </header>
+        <div id="guide-text">🖱️ 마우스 이동: 라켓 조작 | 🖱️ 클릭: 서브 및 스매시</div>
 
-    <!-- Serve Notice Overlay -->
-    <div id="serve-prompt" class="hidden absolute top-28 left-1/2 -translate-x-1/2 z-10 glass-panel px-6 py-2.5 rounded-full text-amber-300 font-bold text-sm md:text-base border border-amber-400/40 animate-pulse-glow shadow-xl">
-        <i class="fa-solid fa-table-tennis-paddle-ball mr-2"></i><span id="serve-prompt-text">당신의 서브 순서입니다! (클릭/터치 시 서브)</span>
+        <div id="controls">
+            <select id="difficulty">
+                <option value="easy">난이도: 쉬움</option>
+                <option value="normal" selected>난이도: 보통</option>
+                <option value="hard">난이도: 어려움</option>
+            </select>
+            <button id="cam-btn">🎥 시점 전환</button>
+            <button id="reset-btn">🔄 새 게임</button>
+        </div>
     </div>
 
-    <!-- Bottom Controls & Camera Toggle -->
-    <footer class="relative z-10 w-full max-w-5xl mx-auto glass-panel rounded-2xl p-3 flex flex-wrap items-center justify-between text-xs text-slate-300 gap-2 shadow-2xl">
-        <div class="flex items-center space-x-3">
-            <span class="font-bold text-slate-400"><i class="fa-solid fa-video mr-1 text-blue-400"></i> 시점 변경:</span>
-            <button onclick="setCameraView('player')" id="cam-player" class="cam-btn px-2.5 py-1 bg-blue-600 rounded-lg text-white font-bold transition">1인칭 (플레이어)</button>
-            <button onclick="setCameraView('quarter')" id="cam-quarter" class="cam-btn px-2.5 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-300 font-semibold transition">쿼터뷰</button>
-            <button onclick="setCameraView('side')" id="cam-side" class="cam-btn px-2.5 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-300 font-semibold transition">사이드뷰</button>
-        </div>
-
-        <div class="flex items-center space-x-3">
-            <button onclick="toggleMute()" id="btn-sound" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 text-slate-200 font-bold transition flex items-center space-x-1.5">
-                <i class="fa-solid fa-volume-high" id="icon-sound"></i>
-                <span id="text-sound">효과음 ON</span>
-            </button>
-        </div>
-    </footer>
-
-    <!-- Overlay: Start / Difficulty Select Modal -->
-    <div id="modal-start" class="absolute inset-0 glass-panel rounded-3xl flex flex-col items-center justify-center p-6 text-center z-20 m-4 md:m-12 max-w-xl mx-auto my-auto h-fit shadow-2xl">
-        <div class="w-20 h-20 bg-emerald-500/20 border-2 border-emerald-400 rounded-full flex items-center justify-center mb-4 text-emerald-400 text-4xl shadow-xl animate-pulse-glow">
-            <i class="fa-solid fa-table-tennis-paddle-ball"></i>
-        </div>
-        <h1 class="text-3xl md:text-5xl font-black text-white mb-2 tracking-tight">3D 리얼 탁구 게임</h1>
-        <p class="text-slate-300 text-sm md:text-base max-w-md mb-6 leading-relaxed">
-            마우스 / 터치를 움직여 3D 라켓을 조작하세요.<br>
-            빠르게 앞/위로 스윙하면 강력한 <strong>탑스핀 스매시</strong>가 발동합니다!
-        </p>
-
-        <div class="w-full max-w-xs space-y-3 mb-6">
-            <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider text-left">AI 난이도 선택</label>
-            <div class="grid grid-cols-3 gap-2">
-                <button type="button" onclick="selectDifficulty('easy')" id="btn-easy" class="diff-btn py-2.5 rounded-xl font-bold text-sm bg-slate-800 border border-slate-600 text-slate-300 hover:bg-slate-700 transition">쉬움</button>
-                <button type="button" onclick="selectDifficulty('medium')" id="btn-medium" class="diff-btn py-2.5 rounded-xl font-bold text-sm bg-blue-600 border border-blue-400 text-white shadow-lg transition">보통</button>
-                <button type="button" onclick="selectDifficulty('hard')" id="btn-hard" class="diff-btn py-2.5 rounded-xl font-bold text-sm bg-slate-800 border border-slate-600 text-slate-300 hover:bg-slate-700 transition">어려움</button>
-            </div>
-        </div>
-
-        <button onclick="startGame()" class="w-full max-w-xs py-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-lg rounded-xl shadow-xl transition transform hover:scale-105 active:scale-95 flex items-center justify-center space-x-2">
-            <i class="fa-solid fa-play"></i>
-            <span>경기 시작하기</span>
-        </button>
-    </div>
-
-    <!-- Overlay: Match Over Modal -->
-    <div id="modal-over" class="hidden absolute inset-0 glass-panel rounded-3xl flex flex-col items-center justify-center p-6 text-center z-20 m-4 md:m-12 max-w-xl mx-auto my-auto h-fit shadow-2xl">
-        <div id="winner-icon" class="w-20 h-20 rounded-full flex items-center justify-center mb-4 text-4xl shadow-xl"></div>
-        <h2 id="winner-title" class="text-3xl md:text-4xl font-black text-white mb-2"></h2>
-        <p id="winner-desc" class="text-slate-300 text-sm md:text-base mb-6"></p>
-
-        <div class="bg-slate-900/80 rounded-2xl p-4 w-full max-w-xs mb-6 border border-slate-700 text-left space-y-2 text-sm">
-            <div class="flex justify-between">
-                <span class="text-slate-400">최종 스코어:</span>
-                <span id="final-score" class="font-bold text-white">11 - 9</span>
-            </div>
-            <div class="flex justify-between">
-                <span class="text-slate-400">최장 랠리:</span>
-                <span id="final-rally" class="font-bold text-emerald-400">0 회</span>
-            </div>
-            <div class="flex justify-between">
-                <span class="text-slate-400">스매시 성공:</span>
-                <span id="final-smashes" class="font-bold text-amber-400">0 회</span>
-            </div>
-        </div>
-
-        <button onclick="restartGame()" class="w-full max-w-xs py-3.5 bg-blue-600 hover:bg-blue-500 text-white font-black text-lg rounded-xl shadow-xl transition transform hover:scale-105 active:scale-95 flex items-center justify-center space-x-2">
-            <i class="fa-solid fa-rotate-right"></i>
-            <span>다시 경기하기</span>
-        </button>
-    </div>
-
-    <!-- Game Logic Script -->
     <script>
-        // ==========================================
-        // 1. Web Audio API Sound Synth Engine
-        // ==========================================
-        class SoundEngine {
-            constructor() {
-                this.ctx = null;
-                this.muted = false;
-            }
+        // 1. 사운드 합성 (Web Audio API)
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playSound(type) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
 
-            init() {
-                if (!this.ctx) {
-                    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-                    if (AudioCtx) this.ctx = new AudioCtx();
-                }
-                if (this.ctx && this.ctx.state === 'suspended') {
-                    this.ctx.resume();
-                }
-            }
-
-            playPaddleHit(isSmash = false) {
-                if (this.muted || !this.ctx) return;
-                try {
-                    const osc = this.ctx.createOscillator();
-                    const gain = this.ctx.createGain();
-                    osc.type = isSmash ? 'sawtooth' : 'sine';
-                    const freq = isSmash ? 720 : 450;
-                    osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
-                    osc.frequency.exponentialRampToValueAtTime(120, this.ctx.currentTime + (isSmash ? 0.14 : 0.08));
-
-                    gain.gain.setValueAtTime(isSmash ? 0.45 : 0.25, this.ctx.currentTime);
-                    gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + (isSmash ? 0.14 : 0.08));
-
-                    osc.connect(gain);
-                    gain.connect(this.ctx.destination);
-                    osc.start();
-                    osc.stop(this.ctx.currentTime + (isSmash ? 0.14 : 0.08));
-                } catch(e){}
-            }
-
-            playTableBounce() {
-                if (this.muted || !this.ctx) return;
-                try {
-                    const osc = this.ctx.createOscillator();
-                    const gain = this.ctx.createGain();
-                    osc.type = 'triangle';
-                    osc.frequency.setValueAtTime(320, this.ctx.currentTime);
-                    osc.frequency.exponentialRampToValueAtTime(90, this.ctx.currentTime + 0.06);
-
-                    gain.gain.setValueAtTime(0.22, this.ctx.currentTime);
-                    gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.06);
-
-                    osc.connect(gain);
-                    gain.connect(this.ctx.destination);
-                    osc.start();
-                    osc.stop(this.ctx.currentTime + 0.06);
-                } catch(e){}
-            }
-
-            playScore(isPlayerWinner) {
-                if (this.muted || !this.ctx) return;
-                try {
-                    const now = this.ctx.currentTime;
-                    const freqs = isPlayerWinner ? [523.25, 659.25, 783.99] : [392.00, 349.23, 329.63];
-                    freqs.forEach((freq, idx) => {
-                        const osc = this.ctx.createOscillator();
-                        const gain = this.ctx.createGain();
-                        osc.type = 'sine';
-                        osc.frequency.setValueAtTime(freq, now + idx * 0.1);
-                        gain.gain.setValueAtTime(0.2, now + idx * 0.1);
-                        gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.1 + 0.22);
-                        osc.connect(gain);
-                        gain.connect(this.ctx.destination);
-                        osc.start(now + idx * 0.1);
-                        osc.stop(now + idx * 0.1 + 0.22);
-                    });
-                } catch(e){}
+            const now = audioCtx.currentTime;
+            if (type === 'paddle') {
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(520, now);
+                osc.frequency.exponentialRampToValueAtTime(180, now + 0.08);
+                gain.gain.setValueAtTime(0.4, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
+                osc.start(now);
+                osc.stop(now + 0.08);
+            } else if (type === 'smash') {
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(750, now);
+                osc.frequency.exponentialRampToValueAtTime(120, now + 0.14);
+                gain.gain.setValueAtTime(0.6, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.14);
+                osc.start(now);
+                osc.stop(now + 0.14);
+            } else if (type === 'table') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(340, now);
+                osc.frequency.exponentialRampToValueAtTime(140, now + 0.05);
+                gain.gain.setValueAtTime(0.25, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+                osc.start(now);
+                osc.stop(now + 0.05);
+            } else if (type === 'score') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(587.33, now);
+                osc.frequency.setValueAtTime(880, now + 0.1);
+                gain.gain.setValueAtTime(0.3, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+                osc.start(now);
+                osc.stop(now + 0.3);
             }
         }
 
-        const audio = new SoundEngine();
-
-        // ==========================================
-        // 2. Constants & Table Physics Dimensions
-        // ==========================================
-        // Official Table proportional dimensions in 3D units (meters scale)
-        const TABLE = {
-            width: 1.525,     // X axis width
-            length: 2.74,     // Z axis length
-            height: 0.76,     // Y axis surface height from floor
-            netHeight: 0.1525
-        };
-
-        const BALL_RADIUS = 0.038;
-        const PADDLE_RADIUS = 0.11;
-
-        // Game State Variables
-        let gameState = 'START'; // 'START', 'SERVE', 'PLAYING', 'SCORED', 'OVER'
-        let difficulty = 'medium';
-        let currentCameraView = 'player'; // 'player', 'quarter', 'side'
-
-        let playerScore = 0;
-        let aiScore = 0;
-        let rallyCount = 0;
-        let maxRallyCount = 0;
-        let smashCount = 0;
-        let server = 'player'; // 'player' or 'ai'
-        let totalServesCount = 0;
-
-        let lastBounceSide = null; // 'player' or 'ai' or null
-        let bounceCountThisTurn = 0;
-
-        // Pointer / Input tracking
-        const mouse2D = new THREE.Vector2();
-        let targetPaddlePos = new THREE.Vector3(0, TABLE.height + 0.15, TABLE.length / 2 + 0.35);
-        let lastPaddlePos = new THREE.Vector3();
-        let paddleVelocity = new THREE.Vector3();
-
-        // ==========================================
-        // 3. Three.js Scene & Object Construction
-        // ==========================================
-        const container = document.getElementById('canvas-container');
+        // 2. Three.js 씬 설정
+        const container = document.getElementById('game-container');
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x0a0f1d);
-        scene.fog = new THREE.FogExp2(0x0a0f1d, 0.08);
+        scene.background = new THREE.Color(0x0f172a);
+        scene.fog = new THREE.Fog(0x0f172a, 12, 32);
 
-        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 50);
-        
-        const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+        const camera = new THREE.PerspectiveCamera(48, window.innerWidth / window.innerHeight, 0.1, 100);
+        let cameraMode = 0;
+        function updateCameraPosition() {
+            if (cameraMode === 0) {
+                camera.position.set(0, 4.6, 8.8);
+                camera.lookAt(0, 0.6, -1.2);
+            } else {
+                camera.position.set(0, 6.8, 7.2);
+                camera.lookAt(0, 0.4, 0);
+            }
+        }
+        updateCameraPosition();
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         container.appendChild(renderer.domElement);
 
-        // Lighting
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        // 조명
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.55);
         scene.add(ambientLight);
 
-        const spotLight = new THREE.SpotLight(0xffffff, 1.2);
-        spotLight.position.set(0, 4.5, 0);
-        spotLight.angle = Math.PI / 3;
-        spotLight.penumbra = 0.4;
-        spotLight.castShadow = true;
-        spotLight.shadow.mapSize.width = 2048;
-        spotLight.shadow.mapSize.height = 2048;
-        spotLight.shadow.bias = -0.0005;
-        scene.add(spotLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+        dirLight.position.set(5, 12, 6);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 2048;
+        dirLight.shadow.mapSize.height = 2048;
+        scene.add(dirLight);
 
-        // Floor / Gymnasium arena background
-        const floorGeo = new THREE.PlaneGeometry(24, 24);
-        const floorMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.8 });
+        // 경기장 바닥
+        const floorGeo = new THREE.PlaneGeometry(40, 40);
+        const floorMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.8 });
         const floor = new THREE.Mesh(floorGeo, floorMat);
         floor.rotation.x = -Math.PI / 2;
+        floor.position.y = -1.5;
         floor.receiveShadow = true;
         scene.add(floor);
 
-        // Table Mesh Group
-        const tableGroup = new THREE.Group();
-        scene.add(tableGroup);
+        // 3. 탁구대 제작 (국제 규격 비율: 가로 4.5, 세로 8.2)
+        const TABLE_W = 4.6;
+        const TABLE_L = 8.4;
+        const TABLE_H = 0.2;
 
-        // Table Top Surface
-        const tableGeo = new THREE.BoxGeometry(TABLE.width, 0.05, TABLE.length);
-        const tableMat = new THREE.MeshStandardMaterial({ color: 0x1e3a8a, roughness: 0.3, metalness: 0.1 });
+        const tableGroup = new THREE.Group();
+        const tableGeo = new THREE.BoxGeometry(TABLE_W, TABLE_H, TABLE_L);
+        const tableMat = new THREE.MeshStandardMaterial({ color: 0x1d4ed8, roughness: 0.35 });
         const tableMesh = new THREE.Mesh(tableGeo, tableMat);
-        tableMesh.position.y = TABLE.height - 0.025;
+        tableMesh.position.y = -TABLE_H / 2;
         tableMesh.receiveShadow = true;
-        tableMesh.castShadow = true;
         tableGroup.add(tableMesh);
 
-        // White Lines on Table
+        // 흰색 라인
         const lineMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-        
-        // Border lines
-        const borderGeo = new THREE.BoxGeometry(TABLE.width + 0.01, 0.052, TABLE.length + 0.01);
-        const borderMesh = new THREE.Mesh(borderGeo, new THREE.MeshBasicMaterial({ color: 0xffffff }));
-        borderMesh.position.y = TABLE.height - 0.025;
-        tableGroup.add(borderMesh);
-        // Inner blue overlay to leave white border lines
-        const innerBlue = new THREE.Mesh(
-            new THREE.BoxGeometry(TABLE.width - 0.03, 0.054, TABLE.length - 0.03),
-            tableMat
-        );
-        innerBlue.position.y = TABLE.height - 0.024;
-        tableGroup.add(innerBlue);
-
-        // Center White Line
-        const centerLineGeo = new THREE.BoxGeometry(0.008, 0.055, TABLE.length - 0.03);
-        const centerLine = new THREE.Mesh(centerLineGeo, lineMat);
-        centerLine.position.y = TABLE.height - 0.023;
+        const centerLine = new THREE.Mesh(new THREE.PlaneGeometry(0.05, TABLE_L), lineMat);
+        centerLine.rotation.x = -Math.PI / 2;
+        centerLine.position.y = 0.005;
         tableGroup.add(centerLine);
 
-        // Net Mesh & Posts
-        const netGroup = new THREE.Group();
-        const netGeo = new THREE.BoxGeometry(TABLE.width + 0.1, TABLE.netHeight, 0.005);
-        const netMat = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.7, wireframe: true });
+        const borderL = new THREE.Mesh(new THREE.PlaneGeometry(0.07, TABLE_L), lineMat);
+        borderL.rotation.x = -Math.PI / 2;
+        borderL.position.set(-TABLE_W / 2 + 0.035, 0.005, 0);
+        tableGroup.add(borderL);
+
+        const borderR = borderL.clone();
+        borderR.position.x = TABLE_W / 2 - 0.035;
+        tableGroup.add(borderR);
+
+        const borderTop = new THREE.Mesh(new THREE.PlaneGeometry(TABLE_W, 0.07), lineMat);
+        borderTop.rotation.x = -Math.PI / 2;
+        borderTop.position.set(0, 0.005, -TABLE_L / 2 + 0.035);
+        tableGroup.add(borderTop);
+
+        const borderBot = borderTop.clone();
+        borderBot.position.z = TABLE_L / 2 - 0.035;
+        tableGroup.add(borderBot);
+
+        // 네트
+        const netGeo = new THREE.BoxGeometry(TABLE_W + 0.3, 0.42, 0.04);
+        const netMat = new THREE.MeshStandardMaterial({
+            color: 0xe2e8f0,
+            transparent: true,
+            opacity: 0.85,
+            roughness: 0.6
+        });
         const netMesh = new THREE.Mesh(netGeo, netMat);
-        netMesh.position.y = TABLE.height + TABLE.netHeight / 2;
-        netGroup.add(netMesh);
+        netMesh.position.y = 0.21;
+        netMesh.castShadow = true;
+        tableGroup.add(netMesh);
 
-        // Net Posts
-        const postGeo = new THREE.CylinderGeometry(0.012, 0.012, TABLE.netHeight + 0.02, 12);
-        const postMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.8 });
-        const post1 = new THREE.Mesh(postGeo, postMat);
-        post1.position.set(TABLE.width / 2 + 0.05, TABLE.height + TABLE.netHeight / 2, 0);
-        const post2 = post1.clone();
-        post2.position.x = -TABLE.width / 2 - 0.05;
-        netGroup.add(post1);
-        netGroup.add(post2);
-        tableGroup.add(netGroup);
-
-        // Table Legs
-        const legGeo = new THREE.CylinderGeometry(0.025, 0.025, TABLE.height - 0.05, 16);
-        const legMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.5 });
-        const legPositions = [
-            [-TABLE.width / 2 + 0.1, (TABLE.height - 0.05)/2, -TABLE.length / 2 + 0.15],
-            [ TABLE.width / 2 - 0.1, (TABLE.height - 0.05)/2, -TABLE.length / 2 + 0.15],
-            [-TABLE.width / 2 + 0.1, (TABLE.height - 0.05)/2,  TABLE.length / 2 - 0.15],
-            [ TABLE.width / 2 - 0.1, (TABLE.height - 0.05)/2,  TABLE.length / 2 - 0.15]
-        ];
-        legPositions.forEach(pos => {
+        // 탁구대 다리
+        const legGeo = new THREE.BoxGeometry(0.2, 1.5, 0.2);
+        const legMat = new THREE.MeshStandardMaterial({ color: 0x0f172a });
+        [[-1.8, -3.2], [1.8, -3.2], [-1.8, 3.2], [1.8, 3.2]].forEach(([lx, lz]) => {
             const leg = new THREE.Mesh(legGeo, legMat);
-            leg.position.set(...pos);
-            leg.castShadow = true;
+            leg.position.set(lx, -0.85, lz);
             tableGroup.add(leg);
         });
 
-        // --- Paddle Construction Helper ---
+        scene.add(tableGroup);
+
+        // 4. 라켓 생성 함수
         function createPaddle(rubberColor) {
             const group = new THREE.Group();
-            
-            // Blade / Rubber Face
-            const bladeGeo = new THREE.CylinderGeometry(PADDLE_RADIUS, PADDLE_RADIUS, 0.018, 32);
-            const rubberMat = new THREE.MeshStandardMaterial({ color: rubberColor, roughness: 0.4 });
-            const blade = new THREE.Mesh(bladeGeo, rubberMat);
-            blade.rotation.x = Math.PI / 2;
+            const bladeGeo = new THREE.CylinderGeometry(0.45, 0.45, 0.06, 32);
+            bladeGeo.rotateX(Math.PI / 2);
+            const bladeMat = new THREE.MeshStandardMaterial({ color: rubberColor, roughness: 0.4 });
+            const blade = new THREE.Mesh(bladeGeo, bladeMat);
             blade.castShadow = true;
             group.add(blade);
 
-            // Back rubber side (black for player, red for AI)
-            const backMat = new THREE.MeshStandardMaterial({ color: rubberColor === 0xef4444 ? 0x0f172a : 0xef4444, roughness: 0.4 });
-            const backBlade = new THREE.Mesh(bladeGeo, backMat);
-            backBlade.rotation.x = -Math.PI / 2;
-            backBlade.position.z = -0.002;
-            group.add(backBlade);
-
-            // Handle
-            const handleGeo = new THREE.CylinderGeometry(0.016, 0.018, 0.13, 16);
-            const handleMat = new THREE.MeshStandardMaterial({ color: 0x9a3412, roughness: 0.7 });
+            const handleGeo = new THREE.BoxGeometry(0.14, 0.45, 0.08);
+            const handleMat = new THREE.MeshStandardMaterial({ color: 0xd97706 });
             const handle = new THREE.Mesh(handleGeo, handleMat);
-            handle.position.y = -0.14;
-            handle.castShadow = true;
+            handle.position.y = -0.55;
             group.add(handle);
 
             return group;
         }
 
-        const playerPaddle = createPaddle(0xef4444); // Red Rubber Player Paddle
+        const playerPaddle = createPaddle(0xef4444); // 빨간 러버
+        playerPaddle.position.set(0, 0.6, 4.4);
         scene.add(playerPaddle);
 
-        const aiPaddle = createPaddle(0x1e293b); // Black Rubber AI Paddle
+        const aiPaddle = createPaddle(0x1e293b); // 검은 러버
+        aiPaddle.position.set(0, 0.6, -4.4);
         scene.add(aiPaddle);
 
-        // 3D Ball
-        const ballGeo = new THREE.SphereGeometry(BALL_RADIUS, 32, 32);
-        const ballMat = new THREE.MeshStandardMaterial({ color: 0xfff7ed, roughness: 0.2 });
-        const ballMesh = new THREE.Mesh(ballGeo, ballMat);
-        ballMesh.castShadow = true;
-        scene.add(ballMesh);
+        // 5. 탁구공 및 바닥 그림자
+        const BALL_R = 0.11;
+        const ballGeo = new THREE.SphereGeometry(BALL_R, 24, 24);
+        const ballMat = new THREE.MeshStandardMaterial({ color: 0xfbbf24, roughness: 0.2 });
+        const ball = new THREE.Mesh(ballGeo, ballMat);
+        ball.castShadow = true;
+        scene.add(ball);
 
-        // Ball Trail Particle Effect
-        const trailCount = 8;
-        const ballTrailMeshes = [];
-        for(let i=0; i<trailCount; i++) {
-            const tMat = new THREE.MeshBasicMaterial({ color: 0xfbbf24, transparent: true, opacity: 0 });
-            const tMesh = new THREE.Mesh(ballGeo, tMat);
-            scene.add(tMesh);
-            ballTrailMeshes.push(tMesh);
-        }
-        let trailHistory = [];
+        const shadowGeo = new THREE.CircleGeometry(BALL_R * 1.3, 16);
+        shadowGeo.rotateX(-Math.PI / 2);
+        const shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35 });
+        const ballShadow = new THREE.Mesh(shadowGeo, shadowMat);
+        ballShadow.position.y = 0.01;
+        scene.add(ballShadow);
 
-        // Ball Physics Physics State Object
-        const ballPhysics = {
-            pos: new THREE.Vector3(0, TABLE.height + 0.2, TABLE.length / 2 - 0.2),
-            vel: new THREE.Vector3(),
-            spin: new THREE.Vector3(), // Topspin/Backspin & Sidespin
-            isSmash: false
-        };
+        // 6. 게임 상태 및 물리 변수
+        let playerScore = 0;
+        let aiScore = 0;
+        let gameState = 'SERVE_PLAYER'; // SERVE_PLAYER, PLAYING, POINT_OVER, GAME_OVER
+        let ballVel = new THREE.Vector3(0, 0, 0);
+        let ballSpin = new THREE.Vector3(0, 0, 0); // x: topspin, y: sidespin
+        let lastHitter = null;
+        let bounceCount = 0;
 
-        // Camera Views Setup
-        function updateCameraTransform() {
-            if (currentCameraView === 'player') {
-                camera.position.set(0, TABLE.height + 0.6, TABLE.length / 2 + 1.25);
-                camera.lookAt(0, TABLE.height + 0.1, -0.4);
-            } else if (currentCameraView === 'quarter') {
-                camera.position.set(1.8, TABLE.height + 1.2, 1.8);
-                camera.lookAt(0, TABLE.height, 0);
-            } else if (currentCameraView === 'side') {
-                camera.position.set(2.4, TABLE.height + 0.4, 0);
-                camera.lookAt(0, TABLE.height + 0.1, 0);
-            }
-        }
-        updateCameraTransform();
+        let targetPaddleX = 0;
+        let targetPaddleY = 0.6;
+        let prevPaddleX = 0;
+        let smashCharge = false;
 
-        function setCameraView(view) {
-            currentCameraView = view;
-            document.querySelectorAll('.cam-btn').forEach(btn => {
-                btn.className = 'cam-btn px-2.5 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-300 font-semibold transition';
-            });
-            document.getElementById(`cam-${view}`).className = 'cam-btn px-2.5 py-1 bg-blue-600 rounded-lg text-white font-bold transition';
-            updateCameraTransform();
-        }
-
-        // ==========================================
-        // 4. Game Logic & Serve Management
-        // ==========================================
-        const AI_CONFIGS = {
-            easy: { speed: 4.5, error: 0.25, label: 'AI (쉬움)' },
-            medium: { speed: 7.2, error: 0.12, label: 'AI (보통)' },
-            hard: { speed: 10.5, error: 0.04, label: 'AI (어려움)' }
-        };
-
-        function selectDifficulty(diff) {
-            difficulty = diff;
-            document.querySelectorAll('.diff-btn').forEach(btn => {
-                btn.className = 'diff-btn py-2.5 rounded-xl font-bold text-sm bg-slate-800 border border-slate-600 text-slate-300 hover:bg-slate-700 transition';
-            });
-            document.getElementById(`btn-${diff}`).className = 'diff-btn py-2.5 rounded-xl font-bold text-sm bg-blue-600 border border-blue-400 text-white shadow-lg transition';
-            document.getElementById('ai-label').innerText = AI_CONFIGS[diff].label;
-        }
-
-        function updateServeBadges() {
-            document.getElementById('player-serve-badge').classList.toggle('hidden', server !== 'player');
-            document.getElementById('ai-serve-badge').classList.toggle('hidden', server !== 'ai');
-        }
-
-        function prepareServe() {
-            gameState = 'SERVE';
-            lastBounceSide = null;
-            bounceCountThisTurn = 0;
-            ballPhysics.spin.set(0,0,0);
-            ballPhysics.isSmash = false;
-
-            const prompt = document.getElementById('serve-prompt');
-            const promptText = document.getElementById('serve-prompt-text');
-
-            if (server === 'player') {
-                ballPhysics.pos.set(0.15, TABLE.height + 0.18, TABLE.length / 2 - 0.1);
-                ballPhysics.vel.set(0, 0, 0);
-                promptText.innerText = '당신의 서브 순서입니다! (클릭/스윙하여 서브)';
-                prompt.classList.remove('hidden');
-            } else {
-                ballPhysics.pos.set(-0.15, TABLE.height + 0.18, -TABLE.length / 2 + 0.1);
-                ballPhysics.vel.set(0, 0, 0);
-                promptText.innerText = 'AI의 서브 차례입니다...';
-                prompt.classList.remove('hidden');
-
-                // Trigger AI serve after short delay
-                setTimeout(() => {
-                    if (gameState === 'SERVE' && server === 'ai') {
-                        executeAIServe();
-                    }
-                }, 1100);
-            }
-            updateServeBadges();
-        }
-
-        function executeAIServe() {
-            gameState = 'PLAYING';
-            document.getElementById('serve-prompt').classList.add('hidden');
-            
-            // AI serves ball to player side with bounce
-            ballPhysics.vel.set(
-                (Math.random() - 0.5) * 0.8,
-                2.2,
-                4.2
-            );
-            audio.playPaddleHit(false);
-        }
-
-        function startGame() {
-            audio.init();
-            playerScore = 0;
-            aiScore = 0;
-            rallyCount = 0;
-            maxRallyCount = 0;
-            smashCount = 0;
-            server = 'player';
-            totalServesCount = 0;
-
-            updateScoreUI();
-            document.getElementById('modal-start').classList.add('hidden');
-            document.getElementById('modal-over').classList.add('hidden');
-
-            prepareServe();
-        }
-
-        function restartGame() {
-            startGame();
+        const statusText = document.getElementById('status-text');
+        function showMessage(text, color = '#fbbf24', duration = 900) {
+            statusText.textContent = text;
+            statusText.style.color = color;
+            statusText.style.opacity = 1;
+            clearTimeout(statusText._timer);
+            statusText._timer = setTimeout(() => {
+                statusText.style.opacity = 0;
+            }, duration);
         }
 
         function updateScoreUI() {
-            document.getElementById('player-score').innerText = playerScore;
-            document.getElementById('ai-score').innerText = aiScore;
-            document.getElementById('current-rally').innerText = rallyCount;
-            document.getElementById('max-rally').innerText = maxRallyCount;
+            document.getElementById('player-score').textContent = playerScore;
+            document.getElementById('ai-score').textContent = aiScore;
+        }
 
-            const badge = document.getElementById('game-status-badge');
-            if (playerScore >= 10 && aiScore >= 10) {
-                badge.innerText = '듀스 (2점 차 승부)';
-                badge.className = 'mt-1 inline-block px-3 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse';
-            } else if (playerScore >= 10 || aiScore >= 10) {
-                badge.innerText = '매치 포인트!';
-                badge.className = 'mt-1 inline-block px-3 py-0.5 rounded-full text-xs font-bold bg-red-500/20 text-red-300 border border-red-500/30 animate-pulse';
+        function resetBallForServe(server = 'PLAYER') {
+            ballVel.set(0, 0, 0);
+            ballSpin.set(0, 0, 0);
+            bounceCount = 0;
+            lastHitter = null;
+            if (server === 'PLAYER') {
+                gameState = 'SERVE_PLAYER';
+                ball.position.set(playerPaddle.position.x, playerPaddle.position.y + 0.35, 3.8);
             } else {
-                badge.innerText = '11점 선승 (2점 차 승부)';
-                badge.className = 'mt-1 inline-block px-3 py-0.5 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+                gameState = 'SERVE_AI';
+                ball.position.set(aiPaddle.position.x, aiPaddle.position.y + 0.35, -3.8);
+                setTimeout(() => {
+                    if (gameState === 'SERVE_AI') {
+                        aiServe();
+                    }
+                }, 900);
             }
         }
 
-        function handlePointScore(winner) {
-            if (gameState === 'SCORED' || gameState === 'OVER') return;
-            gameState = 'SCORED';
+        function playerServe() {
+            if (gameState !== 'SERVE_PLAYER') return;
+            gameState = 'PLAYING';
+            lastHitter = 'PLAYER';
+            bounceCount = 0;
+            const aimX = (Math.random() - 0.5) * 2.2;
+            ballVel.set((aimX - ball.position.x) * 1.1, 3.2, -9.8);
+            ballSpin.set(1.5, (playerPaddle.position.x - prevPaddleX) * 8, 0);
+            playSound('paddle');
+        }
 
-            if (winner === 'player') {
+        function aiServe() {
+            gameState = 'PLAYING';
+            lastHitter = 'AI';
+            bounceCount = 0;
+            const aimX = (Math.random() - 0.5) * 2.4;
+            ballVel.set((aimX - ball.position.x) * 1.1, 3.1, 9.5);
+            ballSpin.set(1.2, 0, 0);
+            playSound('paddle');
+        }
+
+        function awardPoint(winner, reason = '') {
+            if (gameState === 'POINT_OVER' || gameState === 'GAME_OVER') return;
+            gameState = 'POINT_OVER';
+            playSound('score');
+
+            if (winner === 'PLAYER') {
                 playerScore++;
-                audio.playScore(true);
+                showMessage(reason || 'POINT! (+1)', '#38bdf8', 1100);
             } else {
                 aiScore++;
-                audio.playScore(false);
+                showMessage(reason || 'AI POINT!', '#f43f5e', 1100);
             }
-
-            if (rallyCount > maxRallyCount) maxRallyCount = rallyCount;
-            rallyCount = 0;
             updateScoreUI();
 
-            // Check Serve alternation (every 2 points or every 1 point during deuce)
-            totalServesCount++;
-            const isDeuce = playerScore >= 10 && aiScore >= 10;
-            if (isDeuce || totalServesCount % 2 === 0) {
-                server = (server === 'player') ? 'ai' : 'player';
-            }
-
-            // Check Match Winner
+            // 11점 듀스 규칙 체크
             if ((playerScore >= 11 || aiScore >= 11) && Math.abs(playerScore - aiScore) >= 2) {
-                gameState = 'OVER';
-                const isPlayerWinner = playerScore > aiScore;
-                
-                const winnerIcon = document.getElementById('winner-icon');
-                const winnerTitle = document.getElementById('winner-title');
-                const winnerDesc = document.getElementById('winner-desc');
+                gameState = 'GAME_OVER';
+                const winMsg = playerScore > aiScore ? '🏆 승리했습니다!' : '💀 패배했습니다!';
+                showMessage(winMsg, '#fbbf24', 4000);
+                return;
+            }
 
-                if (isPlayerWinner) {
-                    winnerIcon.className = 'w-20 h-20 rounded-full bg-emerald-500/20 border-2 border-emerald-400 flex items-center justify-center mb-4 text-emerald-400 text-4xl shadow-xl';
-                    winnerIcon.innerHTML = '<i class="fa-solid fa-trophy"></i>';
-                    winnerTitle.innerText = '승리하셨습니다!';
-                    winnerDesc.innerText = '정교한 라켓 컨트롤과 강력한 타이밍으로 승리했습니다!';
-                } else {
-                    winnerIcon.className = 'w-20 h-20 rounded-full bg-red-500/20 border-2 border-red-400 flex items-center justify-center mb-4 text-red-400 text-4xl shadow-xl';
-                    winnerIcon.innerHTML = '<i class="fa-solid fa-face-frown"></i>';
-                    winnerTitle.innerText = '패배하였습니다';
-                    winnerDesc.innerText = 'AI의 까다로운 리턴에 고전했습니다. 다시 도전해보세요!';
-                }
+            setTimeout(() => {
+                resetBallForServe(winner);
+            }, 1200);
+        }
 
-                document.getElementById('final-score').innerText = `${playerScore} - ${aiScore}`;
-                document.getElementById('final-rally').innerText = `${maxRallyCount} 회`;
-                document.getElementById('final-smashes').innerText = `${smashCount} 회`;
-                document.getElementById('modal-over').classList.remove('hidden');
-            } else {
+        // 7. 입력 이벤트
+        window.addEventListener('mousemove', (e) => {
+            const normX = (e.clientX / window.innerWidth) * 2 - 1;
+            const normY = -(e.clientY / window.innerHeight) * 2 + 1;
+            targetPaddleX = normX * 3.1;
+            targetPaddleY = Math.max(0.25, Math.min(2.0, (normY + 0.6) * 1.2));
+        });
+
+        window.addEventListener('mousedown', () => {
+            if (gameState === 'SERVE_PLAYER') {
+                playerServe();
+            } else if (gameState === 'PLAYING') {
+                smashCharge = true;
+                playerPaddle.rotation.x = -0.55;
                 setTimeout(() => {
-                    prepareServe();
-                }, 1300);
-            }
-        }
-
-        // ==========================================
-        // 5. Input Controls & Raycasting
-        // ==========================================
-        const raycaster = new THREE.Raycaster();
-        const inputPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -TABLE.length / 2 - 0.1);
-
-        function onPointerMove(event) {
-            mouse2D.x = (event.clientX / window.innerWidth) * 2 - 1;
-            mouse2D.y = -(event.clientY / window.innerHeight) * 2 + 1;
-
-            raycaster.setFromCamera(mouse2D, camera);
-            const intersectPoint = new THREE.Vector3();
-            raycaster.ray.intersectPlane(inputPlane, intersectPoint);
-
-            if (intersectPoint) {
-                // Limit Player paddle movement within playable zone
-                targetPaddlePos.x = THREE.MathUtils.clamp(intersectPoint.x, -TABLE.width / 2 - 0.3, TABLE.width / 2 + 0.3);
-                targetPaddlePos.y = THREE.MathUtils.clamp(intersectPoint.y, TABLE.height + 0.05, TABLE.height + 0.7);
-                targetPaddlePos.z = THREE.MathUtils.clamp(intersectPoint.z, 0.2, TABLE.length / 2 + 0.6);
-            }
-        }
-
-        window.addEventListener('pointermove', onPointerMove);
-
-        // Serve trigger on click/tap
-        window.addEventListener('pointerdown', () => {
-            if (gameState === 'SERVE' && server === 'player') {
-                gameState = 'PLAYING';
-                document.getElementById('serve-prompt').classList.add('hidden');
-                
-                // Serve forward impulse
-                ballPhysics.vel.set(
-                    paddleVelocity.x * 0.5,
-                    2.0 + paddleVelocity.y * 0.4,
-                    -4.8 - Math.abs(paddleVelocity.z) * 0.5
-                );
-                audio.playPaddleHit(false);
+                    smashCharge = false;
+                    playerPaddle.rotation.x = 0;
+                }, 220);
             }
         });
 
-        // ==========================================
-        // 6. Physics Simulation Loop
-        // ==========================================
-        const clock = new THREE.Clock();
+        document.getElementById('cam-btn').addEventListener('click', () => {
+            cameraMode = (cameraMode + 1) % 2;
+            updateCameraPosition();
+        });
 
-        function updatePhysics(dt) {
-            if (gameState !== 'PLAYING') return;
-
-            const gravity = -9.8;
-            
-            // Magnus force effect from spin (Topspin pulls down, Sidespin curves X)
-            const magnusX = ballPhysics.spin.y * 0.003;
-            const magnusY = -ballPhysics.spin.x * 0.004;
-
-            ballPhysics.vel.x += magnusX * dt;
-            ballPhysics.vel.y += (gravity + magnusY) * dt;
-            ballPhysics.pos.addScaledVector(ballPhysics.vel, dt);
-
-            // Trail positioning
-            trailHistory.unshift(ballPhysics.pos.clone());
-            if (trailHistory.length > trailCount) trailHistory.pop();
-
-            trailHistory.forEach((pos, idx) => {
-                ballTrailMeshes[idx].position.copy(pos);
-                ballTrailMeshes[idx].material.opacity = ballPhysics.isSmash ? (1 - idx / trailCount) * 0.6 : 0;
-            });
-
-            // --- Table Bounce Physics ---
-            const onTableX = Math.abs(ballPhysics.pos.x) <= TABLE.width / 2 + BALL_RADIUS;
-            const onTableZ = Math.abs(ballPhysics.pos.z) <= TABLE.length / 2 + BALL_RADIUS;
-            
-            if (onTableX && onTableZ && ballPhysics.pos.y - BALL_RADIUS <= TABLE.height) {
-                // Table Surface Collision
-                if (ballPhysics.vel.y < 0) {
-                    ballPhysics.pos.y = TABLE.height + BALL_RADIUS;
-                    ballPhysics.vel.y = -ballPhysics.vel.y * 0.85; // Restitution
-                    
-                    // Friction alters spin
-                    ballPhysics.vel.x += ballPhysics.spin.y * 0.02;
-                    ballPhysics.spin.multiplyScalar(0.5);
-
-                    audio.playTableBounce();
-
-                    // Track table side of bounce
-                    const currentSide = ballPhysics.pos.z > 0 ? 'player' : 'ai';
-                    if (lastBounceSide === currentSide) {
-                        bounceCountThisTurn++;
-                    } else {
-                        lastBounceSide = currentSide;
-                        bounceCountThisTurn = 1;
-                    }
-
-                    // Double bounce rule violation
-                    if (bounceCountThisTurn >= 2) {
-                        handlePointScore(currentSide === 'player' ? 'ai' : 'player');
-                    }
-                }
-            }
-
-            // --- Net Collision ---
-            const netZ = 0;
-            if (Math.abs(ballPhysics.pos.z) < 0.04 && Math.abs(ballPhysics.pos.x) <= TABLE.width / 2 + 0.05) {
-                if (ballPhysics.pos.y <= TABLE.height + TABLE.netHeight + BALL_RADIUS) {
-                    ballPhysics.vel.z *= -0.4; // Bounce back from net
-                    ballPhysics.vel.y *= 0.5;
-                    audio.playTableBounce();
-                }
-            }
-
-            // --- Out of Bounds / Floor hit ---
-            if (ballPhysics.pos.y < TABLE.height - 0.4 || Math.abs(ballPhysics.pos.z) > TABLE.length / 2 + 1.2) {
-                // Point scoring logic based on last bounce
-                if (lastBounceSide === 'ai') {
-                    handlePointScore('player');
-                } else if (lastBounceSide === 'player') {
-                    handlePointScore('ai');
-                } else {
-                    // Flew directly out without bouncing on receiver table
-                    handlePointScore(ballPhysics.vel.z > 0 ? 'ai' : 'player');
-                }
-            }
-
-            // --- Player Paddle Collision ---
-            const distPlayer = ballPhysics.pos.distanceTo(playerPaddle.position);
-            if (distPlayer < PADDLE_RADIUS + BALL_RADIUS + 0.04 && ballPhysics.vel.z > 0) {
-                const swingSpeed = paddleVelocity.length();
-                const isSmash = swingSpeed > 3.5 || paddleVelocity.z < -2.0;
-                
-                if (isSmash) smashCount++;
-
-                ballPhysics.isSmash = isSmash;
-                const returnSpeedZ = isSmash ? -8.5 : -5.8;
-
-                ballPhysics.vel.set(
-                    (ballPhysics.pos.x - playerPaddle.position.x) * 4.0 + paddleVelocity.x * 0.4,
-                    Math.max(1.8, paddleVelocity.y * 0.6 + 2.2),
-                    returnSpeedZ
-                );
-
-                // Add spin based on paddle movement
-                ballPhysics.spin.set(paddleVelocity.y * 12.0, paddleVelocity.x * 12.0, 0);
-
-                rallyCount++;
-                if (rallyCount > maxRallyCount) maxRallyCount = rallyCount;
-                updateScoreUI();
-
-                audio.playPaddleHit(isSmash);
-            }
-
-            // --- AI Paddle & Movement Logic ---
-            const aiConfig = AI_CONFIGS[difficulty];
-            const aiTarget = new THREE.Vector3();
-
-            if (ballPhysics.vel.z < 0) { // Ball coming towards AI
-                // Predict intercept point
-                const timeToAI = Math.abs((ballPhysics.pos.z - (-TABLE.length / 2)) / ballPhysics.vel.z);
-                aiTarget.x = THREE.MathUtils.clamp(
-                    ballPhysics.pos.x + ballPhysics.vel.x * timeToAI + (Math.sin(Date.now() * 0.005) * aiConfig.error),
-                    -TABLE.width / 2, TABLE.width / 2
-                );
-                aiTarget.y = THREE.MathUtils.clamp(TABLE.height + 0.15 + (ballPhysics.pos.y - TABLE.height) * 0.5, TABLE.height + 0.05, TABLE.height + 0.5);
-                aiTarget.z = -TABLE.length / 2 - 0.15;
-            } else {
-                // Neutral AI position
-                aiTarget.set(0, TABLE.height + 0.2, -TABLE.length / 2 - 0.2);
-            }
-
-            aiPaddle.position.lerp(aiTarget, dt * aiConfig.speed);
-
-            // AI Collision check
-            const distAI = ballPhysics.pos.distanceTo(aiPaddle.position);
-            if (distAI < PADDLE_RADIUS + BALL_RADIUS + 0.04 && ballPhysics.vel.z < 0) {
-                const isAISmash = difficulty === 'hard' && Math.random() < 0.35;
-                ballPhysics.isSmash = isAISmash;
-                
-                const returnSpeedZ = isAISmash ? 8.2 : 5.6;
-                ballPhysics.vel.set(
-                    (ballPhysics.pos.x - aiPaddle.position.x) * 3.8,
-                    2.0 + Math.random() * 0.8,
-                    returnSpeedZ
-                );
-
-                rallyCount++;
-                if (rallyCount > maxRallyCount) maxRallyCount = rallyCount;
-                updateScoreUI();
-
-                audio.playPaddleHit(isAISmash);
-            }
-        }
-
-        // ==========================================
-        // 7. Render Loop & Window Resize
-        // ==========================================
-        function animate() {
-            requestAnimationFrame(animate);
-
-            const dt = Math.min(clock.getDelta(), 0.033);
-
-            // Calculate Player Paddle Velocity
-            paddleVelocity.subVectors(targetPaddlePos, lastPaddlePos).divideScalar(dt);
-            lastPaddlePos.copy(targetPaddlePos);
-
-            // Smoothly move Player Paddle mesh
-            playerPaddle.position.lerp(targetPaddlePos, 0.4);
-            // Dynamic paddle tilt based on swing
-            playerPaddle.rotation.z = -paddleVelocity.x * 0.08;
-            playerPaddle.rotation.x = Math.PI / 6 - paddleVelocity.z * 0.05;
-
-            // Physics step
-            updatePhysics(dt);
-
-            // Update 3D Ball mesh position
-            ballMesh.position.copy(ballPhysics.pos);
-
-            renderer.render(scene, camera);
-        }
+        document.getElementById('reset-btn').addEventListener('click', () => {
+            playerScore = 0;
+            aiScore = 0;
+            updateScoreUI();
+            resetBallForServe('PLAYER');
+            showMessage('NEW MATCH!', '#38bdf8', 900);
+        });
 
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
@@ -869,26 +516,139 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
 
-        function toggleMute() {
-            audio.muted = !audio.muted;
-            const soundIcon = document.getElementById('icon-sound');
-            const soundText = document.getElementById('text-sound');
+        // 8. 메인 물리 및 렌더링 루프
+        const clock = new THREE.Clock();
+        const GRAVITY = -16.5;
 
-            if (audio.muted) {
-                soundIcon.className = 'fa-solid fa-volume-xmark';
-                soundText.innerText = '효과음 OFF';
-            } else {
-                audio.init();
-                soundIcon.className = 'fa-solid fa-volume-high';
-                soundText.innerText = '효과음 ON';
+        function animate() {
+            requestAnimationFrame(animate);
+            const dt = Math.min(clock.getDelta(), 0.033);
+
+            // 플레이어 라켓 부드러운 이동
+            prevPaddleX = playerPaddle.position.x;
+            playerPaddle.position.x += (targetPaddleX - playerPaddle.position.x) * 18 * dt;
+            playerPaddle.position.y += (targetPaddleY - playerPaddle.position.y) * 18 * dt;
+            playerPaddle.rotation.z = -(targetPaddleX - playerPaddle.position.x) * 0.4;
+
+            if (gameState === 'SERVE_PLAYER') {
+                ball.position.set(playerPaddle.position.x, playerPaddle.position.y + 0.35 + Math.sin(Date.now() * 0.008) * 0.06, 3.8);
+            } else if (gameState === 'PLAYING') {
+                // 마그누스(회전) 효과 및 중력
+                ballVel.x += ballSpin.y * dt * 1.8;
+                ballVel.y += (GRAVITY - ballSpin.x * 2.2) * dt;
+
+                ball.position.addScaledVector(ballVel, dt);
+
+                // 탁구대 바운스 판정
+                const onTableX = Math.abs(ball.position.x) <= TABLE_W / 2 + BALL_R * 0.5;
+                const onTableZ = Math.abs(ball.position.z) <= TABLE_L / 2 + BALL_R * 0.5;
+
+                if (onTableX && onTableZ && ball.position.y <= BALL_R && ballVel.y < 0) {
+                    ball.position.y = BALL_R;
+                    ballVel.y = -ballVel.y * 0.84;
+                    ballVel.z *= 0.97;
+                    playSound('table');
+
+                    // 어느 코트에 튀었는지 확인
+                    const isPlayerSide = ball.position.z > 0;
+                    if (lastHitter === 'PLAYER' && isPlayerSide && bounceCount === 0) {
+                        // 서브 시 자기 코트 원바운드 허용
+                        bounceCount++;
+                    } else if (lastHitter === 'AI' && !isPlayerSide && bounceCount === 0) {
+                        bounceCount++;
+                    } else {
+                        bounceCount++;
+                        if (bounceCount >= 2) {
+                            awardPoint(lastHitter, 'TWO BOUNCE!');
+                        }
+                    }
+                }
+
+                // 네트 충돌 판정
+                if (Math.abs(ball.position.z) < 0.08 && ball.position.y < 0.44) {
+                    ballVel.z *= -0.35;
+                    ballVel.y = 1.5;
+                    playSound('table');
+                    awardPoint(lastHitter === 'PLAYER' ? 'AI' : 'PLAYER', 'NET FAULT!');
+                }
+
+                // 플레이어 라켓 타격 판정
+                if (ballVel.z > 0 && ball.position.z >= 3.8 && ball.position.z <= 4.7) {
+                    const dx = ball.position.x - playerPaddle.position.x;
+                    const dy = ball.position.y - playerPaddle.position.y;
+                    if (Math.hypot(dx, dy) < 0.68) {
+                        const paddleVelX = (playerPaddle.position.x - prevPaddleX) / dt;
+                        const isSmash = smashCharge || ball.position.y > 0.95;
+
+                        ballVel.z = isSmash ? -14.8 : -11.2;
+                        ballVel.x = dx * 3.8 + paddleVelX * 0.28;
+                        ballVel.y = isSmash ? 2.4 : 4.2;
+
+                        ballSpin.set(isSmash ? 3.5 : 1.5, paddleVelX * 0.35, 0);
+                        lastHitter = 'PLAYER';
+                        bounceCount = 0;
+
+                        if (isSmash) {
+                            playSound('smash');
+                            showMessage('🔥 SMASH!', '#fbbf24', 650);
+                        } else {
+                            playSound('paddle');
+                        }
+                    }
+                }
+
+                // AI 이동 및 타격 로직
+                const diff = document.getElementById('difficulty').value;
+                const aiSpeed = diff === 'easy' ? 4.2 : (diff === 'normal' ? 7.2 : 11.5);
+                const aiTargetX = ballVel.z < 0 ? ball.position.x : 0;
+                aiPaddle.position.x += (aiTargetX - aiPaddle.position.x) * aiSpeed * dt;
+                aiPaddle.position.x = Math.max(-2.5, Math.min(2.5, aiPaddle.position.x));
+
+                if (ballVel.z < 0 && ball.position.z <= -3.8 && ball.position.z >= -4.7) {
+                    const dx = ball.position.x - aiPaddle.position.x;
+                    const dy = ball.position.y - aiPaddle.position.y;
+                    if (Math.hypot(dx, dy) < 0.72) {
+                        const aimX = (Math.random() - 0.5) * (diff === 'hard' ? 3.4 : 2.2);
+                        const shotSpeed = diff === 'easy' ? 9.5 : (diff === 'normal' ? 11.4 : 13.6);
+                        ballVel.z = shotSpeed;
+                        ballVel.x = (aimX - ball.position.x) * 1.35;
+                        ballVel.y = diff === 'hard' ? 3.3 : 4.1;
+                        ballSpin.set(diff === 'hard' ? 2.5 : 1.2, (Math.random() - 0.5) * 2.5, 0);
+                        lastHitter = 'AI';
+                        bounceCount = 0;
+                        playSound('paddle');
+                    }
+                }
+
+                // 아웃 / 실점 판정
+                if (ball.position.y < -1.2 || Math.abs(ball.position.z) > 6.5 || Math.abs(ball.position.x) > 4.2) {
+                    if (bounceCount === 0) {
+                        // 노바운드 아웃: 친 사람 실점
+                        awardPoint(lastHitter === 'PLAYER' ? 'AI' : 'PLAYER', 'OUT!');
+                    } else {
+                        // 원바운드 후 못 받아침: 친 사람 득점
+                        awardPoint(lastHitter);
+                    }
+                }
             }
+
+            // 그림자 위치 업데이트
+            ballShadow.position.x = ball.position.x;
+            ballShadow.position.z = ball.position.z;
+            const onTable = Math.abs(ball.position.x) <= TABLE_W / 2 && Math.abs(ball.position.z) <= TABLE_L / 2;
+            ballShadow.visible = onTable && ball.position.y >= 0;
+            const shadowScale = Math.max(0.3, 1 - ball.position.y * 0.25);
+            ballShadow.scale.set(shadowScale, shadowScale, 1);
+
+            renderer.render(scene, camera);
         }
 
-        // Start animation loop on window load
-        window.onload = () => {
-            selectDifficulty('medium');
-            animate();
-        };
+        resetBallForServe('PLAYER');
+        animate();
     </script>
 </body>
 </html>
+"""
+
+# Streamlit 화면에 3D 게임 렌더링
+components.html(html_code, height=780, scrolling=False)
